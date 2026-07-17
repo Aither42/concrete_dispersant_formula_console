@@ -1,1 +1,44 @@
-# concrete_dispersant_formula_console
+# 配方中控台
+
+Streamlit 配方工具，包含：
+
+- V、Q、SE、額外母液比例與濃度可調
+- G 後添加
+- 額外添加劑按最終目標總量占比計算
+- D7 固定為 Q × 0.003
+- 品管濃度不足時的補加量計算
+- 所有用量顯示至小數點後 2 位
+- 無成本計算、無圓餅圖
+
+## 額外添加劑與 G
+
+```text
+額外添加劑量 = 最終目標總量 × 額外添加劑占比
+母液＋水基準 = (最終目標總量 - 額外添加劑量) ÷ (1 + G比例)
+G量 = 母液＋水基準 × G比例
+```
+
+## 品管補加
+
+```text
+補加量
+= 目前批次量 × (目標濃度 - 目前濃度)
+  ÷ (補加原料濃度 - 目標濃度)
+```
+
+此公式會考慮補加後總量增加的稀釋效果。
+
+## 執行
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## 部署
+
+將解壓後檔案上傳到 GitHub，再於 Streamlit Community Cloud 選：
+
+- Branch：main
+- Main file：app.py
+- Python：3.12
