@@ -150,22 +150,23 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
     return buffer.getvalue()
 
 
-def render_result_card(
+def render_result_row(
     name: str,
     amount: float,
     unit: str,
     stage: str,
-    card_class: str = "",
+    row_class: str = "",
 ) -> str:
     return f"""
-    <div class="dose-card {card_class}">
-      <div class="dose-top">
-        <span class="dose-name">{name}</span>
-        <span class="dose-stage">{stage}</span>
+    <div class="formula-row {row_class}">
+      <div class="formula-left">
+        <span class="formula-name">{name}</span>
+        <span class="formula-stage">{stage}</span>
       </div>
-      <div class="dose-value">{amount:.2f}<span class="dose-unit"> {unit}</span></div>
+      <div class="formula-amount">{amount:.2f}<span class="formula-unit"> {unit}</span></div>
     </div>
     """
+
 
 
 st.set_page_config(
@@ -242,10 +243,11 @@ div[data-testid="stSlider"] [role="slider"]{
 }
 
 
+
 .result-shell{
   background:linear-gradient(145deg,#0f3533,#0a5d55);
-  border-radius:26px;
-  padding:1.35rem;
+  border-radius:24px;
+  padding:1.3rem;
   margin:1.1rem 0;
   box-shadow:0 18px 42px rgba(8,65,59,.18);
 }
@@ -260,64 +262,67 @@ div[data-testid="stSlider"] [role="slider"]{
   font-size:1rem;
   margin-bottom:1rem;
 }
-.dose-grid{
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:.85rem;
+.formula-list{
+  background:rgba(255,255,255,.98);
+  border-radius:18px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.5);
 }
-.dose-card{
-  background:rgba(255,255,255,.97);
-  border:1px solid rgba(255,255,255,.55);
-  border-radius:19px;
-  padding:1rem 1.05rem 1.12rem;
-  box-shadow:0 8px 22px rgba(4,44,40,.13);
-}
-.dose-card.post{
-  background:linear-gradient(145deg,#fff8e9,#ffffff);
-  border-color:#efd59f;
-}
-.dose-card.final{
-  background:linear-gradient(145deg,#f9edf1,#ffffff);
-  border-color:#e5bdc8;
-}
-.dose-card.water-negative{
-  background:linear-gradient(145deg,#ffe6e3,#fff7f6);
-  border:2px solid #cf4c43;
-}
-.dose-top{
+.formula-row{
   display:flex;
-  justify-content:space-between;
   align-items:center;
-  gap:.6rem;
+  justify-content:space-between;
+  gap:1rem;
+  min-height:74px;
+  padding:.8rem 1.1rem;
+  border-bottom:1px solid #dfe9e6;
 }
-.dose-name{
+.formula-row:last-child{border-bottom:none}
+.formula-row.post{background:#fffaf0}
+.formula-row.final{background:#fff5f8}
+.formula-row.water-negative{
+  background:#ffe9e7;
+  border-left:6px solid #c8463d;
+}
+.formula-left{
+  display:flex;
+  align-items:center;
+  gap:.65rem;
+  min-width:0;
+  text-align:left;
+}
+.formula-name{
   color:#163638;
-  font-size:clamp(1.15rem,3vw,1.42rem);
+  font-size:clamp(1.18rem,3vw,1.48rem);
   font-weight:800;
+  text-align:left;
 }
-.dose-stage{
+.formula-stage{
   color:#527071;
   background:#e7f2ef;
   border-radius:999px;
   padding:.22rem .55rem;
-  font-size:.78rem;
+  font-size:.77rem;
   font-weight:800;
   white-space:nowrap;
 }
-.dose-card.post .dose-stage{background:#f6e6bd;color:#7e5814}
-.dose-card.final .dose-stage{background:#f2dce3;color:#81394d}
-.dose-card.water-negative .dose-stage{background:#f4c6c1;color:#8d2c26}
-.dose-value{
+.formula-row.post .formula-stage{background:#f6e6bd;color:#7e5814}
+.formula-row.final .formula-stage{background:#f2dce3;color:#81394d}
+.formula-row.water-negative .formula-stage{background:#f4c6c1;color:#8d2c26}
+.formula-amount{
+  margin-left:auto;
+  text-align:right;
+  white-space:nowrap;
   color:#08675d;
-  font-size:clamp(2.25rem,7vw,3.5rem);
-  line-height:1.05;
+  font-size:clamp(1.75rem,5vw,2.55rem);
+  line-height:1;
   font-weight:800;
-  letter-spacing:-.04em;
-  margin-top:.75rem;
+  letter-spacing:-.035em;
+  font-variant-numeric:tabular-nums;
 }
-.dose-card.water-negative .dose-value{color:#b4322b}
-.dose-unit{
-  font-size:clamp(1.05rem,3vw,1.35rem);
+.formula-row.water-negative .formula-amount{color:#b4322b}
+.formula-unit{
+  font-size:clamp(.98rem,2.5vw,1.2rem);
   letter-spacing:0;
   color:#587172;
 }
@@ -339,13 +344,13 @@ div[data-testid="stSlider"] [role="slider"]{
   font-size:1.05rem!important;
   line-height:1.65!important;
 }
-
 @media(max-width:700px){
  .block-container{padding:.8rem .75rem 3rem}
  .hero{padding:1.35rem;border-radius:21px}
- .dose-grid{grid-template-columns:1fr}
- .result-shell{padding:.9rem;border-radius:20px}
- .dose-card{padding:.9rem}
+ .result-shell{padding:.85rem;border-radius:20px}
+ .formula-row{min-height:68px;padding:.75rem .85rem}
+ .formula-left{gap:.45rem}
+ .formula-stage{font-size:.7rem}
  p,label,.stMarkdown,.stCaption{font-size:1rem}
 }
 </style>
@@ -382,8 +387,8 @@ with tab_formula:
 
         st.markdown("### 母液設定")
         st.markdown(
-            '<div class="notice"><b>拖動式設定：</b>左右拖曳滑桿調整比例與濃度，'
-            '每次可調整 0.1%，目前數值會直接顯示在滑桿上。</div>',
+            '<div class="notice"><b>直接輸入：</b>請分別輸入每種母液的有效比例與母液濃度，'
+            '數值可精確至小數點後 2 位。</div>',
             unsafe_allow_html=True,
         )
 
@@ -400,24 +405,25 @@ with tab_formula:
                 f'<div class="ingredient-title">{label}</div>',
                 unsafe_allow_html=True,
             )
-
-            active[key] = st.slider(
+            cols = st.columns(2)
+            active[key] = cols[0].number_input(
                 f"{label} 有效比例 (%)",
                 min_value=0.0,
                 max_value=100.0,
                 value=default_ratio,
                 step=0.1,
-                key=f"{key}_ratio_slider",
+                format="%.2f",
+                key=f"{key}_ratio_input",
             )
-            concentrations[key] = st.slider(
+            concentrations[key] = cols[1].number_input(
                 f"{label} 母液濃度 (%)",
                 min_value=0.1,
                 max_value=100.0,
                 value=default_concentration,
                 step=0.1,
-                key=f"{key}_concentration_slider",
+                format="%.2f",
+                key=f"{key}_concentration_input",
             )
-
             st.markdown(
                 '<div class="ingredient-divider"></div>',
                 unsafe_allow_html=True,
@@ -477,40 +483,40 @@ with tab_formula:
                 unsafe_allow_html=True
             )
 
-        cards = [
-            render_result_card(
+        rows = [
+            render_result_row(
                 "V", result.mother_liquor_amounts["V"], result.unit, "母液"
             ),
-            render_result_card(
+            render_result_row(
                 "Q", result.mother_liquor_amounts["Q"], result.unit, "母液"
             ),
-            render_result_card(
+            render_result_row(
                 "SE", result.mother_liquor_amounts["SE"], result.unit, "母液"
             ),
-            render_result_card(
+            render_result_row(
                 "額外母液",
                 result.mother_liquor_amounts["M4"],
                 result.unit,
                 "母液",
             ),
-            render_result_card(
+            render_result_row(
                 "水",
                 result.water_amount,
                 result.unit,
                 "補水" if not result.has_negative_water else "水量不足",
                 "water-negative" if result.has_negative_water else "",
             ),
-            render_result_card(
+            render_result_row(
                 "G", result.g_amount, result.unit, "後添加", "post"
             ),
-            render_result_card(
+            render_result_row(
                 "額外添加劑",
                 result.additive_amount,
                 result.unit,
                 "後添加",
                 "post",
             ),
-            render_result_card(
+            render_result_row(
                 "D7", result.d7_amount, result.unit, "最後添加", "final"
             ),
         ]
@@ -520,10 +526,10 @@ with tab_formula:
             <div class="result-shell">
               <div class="result-heading">最終投料結果</div>
               <div class="result-subtitle">
-                請依母液、水、後添加與最後添加的順序操作
+                配方成分靠左，用量與單位靠右
               </div>
-              <div class="dose-grid">
-                {''.join(cards)}
+              <div class="formula-list">
+                {''.join(rows)}
               </div>
               <div class="result-total">
                 <span>主配方合計：{result.total_before_d7:.2f} {result.unit}</span>
