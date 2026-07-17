@@ -1,8 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from io import BytesIO
+
 import pandas as pd
 import streamlit as st
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+    Paragraph,
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from calculator import (
     D7_RATIO_TO_Q,
@@ -10,6 +24,149 @@ from calculator import (
     calculate_correction_addition,
     calculate_formula,
 )
+
+
+def build_formula_text(result) -> str:
+    """建立可直接複製到 LINE、Email 或工作群組的配方文字。"""
+    items = [
+        ("V", result.mother_liquor_amounts["V"]),
+        ("Q", result.mother_liquor_amounts["Q"]),
+        ("SE", result.mother_liquor_amounts["SE"]),
+        ("額外母液", result.mother_liquor_amounts["M4"]),
+        ("水", result.water_amount),
+        ("G（後添加）", result.g_amount),
+        ("額外添加劑", result.additive_amount),
+        ("D7（最後添加）", result.d7_amount),
+    ]
+    lines = [
+        "【配方投料結果】",
+        f"最終目標量：{result.target_final_total:.2f} {result.unit}",
+        "",
+    ]
+    lines.extend(
+        f"{name}：{amount:.2f} {result.unit}"
+        for name, amount in items
+    )
+    lines.extend(
+        [
+            "",
+            f"主配方合計：{result.total_before_d7:.2f} {result.unit}",
+            f"含 D7 總量：{result.total_with_d7:.2f} {result.unit}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_formula_pdf(result, operator: str = "") -> bytes:
+    """產生可下載的中文配方單 PDF。"""
+    buffer = BytesIO()
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=42,
+        leftMargin=42,
+        topMargin=42,
+        bottomMargin=42,
+        title="配方計算結果",
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "ChineseTitle",
+        parent=styles["Title"],
+        fontName="STSong-Light",
+        fontSize=22,
+        leading=28,
+        textColor=colors.HexColor("#0B6B61"),
+        alignment=1,
+        spaceAfter=16,
+    )
+    body_style = ParagraphStyle(
+        "ChineseBody",
+        parent=styles["BodyText"],
+        fontName="STSong-Light",
+        fontSize=11,
+        leading=16,
+        textColor=colors.HexColor("#24393A"),
+    )
+
+    story = [
+        Paragraph("配方計算結果", title_style),
+        Paragraph(
+            f"日期：{datetime.now():%Y-%m-%d %H:%M}"
+            + (f"　操作員：{operator}" if operator.strip() else ""),
+            body_style,
+        ),
+        Paragraph(
+            f"最終目標量：{result.target_final_total:.2f} {result.unit}",
+            body_style,
+        ),
+        Spacer(1, 14),
+    ]
+
+    rows = [
+        ["材料", "添加階段", f"用量 ({result.unit})"],
+        ["V", "母液", f"{result.mother_liquor_amounts['V']:.2f}"],
+        ["Q", "母液", f"{result.mother_liquor_amounts['Q']:.2f}"],
+        ["SE", "母液", f"{result.mother_liquor_amounts['SE']:.2f}"],
+        ["額外母液", "母液", f"{result.mother_liquor_amounts['M4']:.2f}"],
+        ["水", "母液配製", f"{result.water_amount:.2f}"],
+        ["G", "後添加", f"{result.g_amount:.2f}"],
+        ["額外添加劑", "後添加", f"{result.additive_amount:.2f}"],
+        ["D7", "最後添加", f"{result.d7_amount:.2f}"],
+    ]
+
+    table = Table(rows, colWidths=[150, 150, 160], repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, -1), "STSong-Light"),
+                ("FONTSIZE", (0, 0), (-1, 0), 12),
+                ("FONTSIZE", (0, 1), (-1, -1), 11),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0B6B61")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#F5FAF8")),
+                ("GRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#BFD7D1")),
+                ("ALIGN", (2, 1), (2, -1), "RIGHT"),
+                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 9),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+            ]
+        )
+    )
+    story.append(table)
+    story.append(Spacer(1, 14))
+    story.append(
+        Paragraph(
+            f"主配方合計：{result.total_before_d7:.2f} {result.unit}　"
+            f"含 D7 總量：{result.total_with_d7:.2f} {result.unit}",
+            body_style,
+        )
+    )
+    document.build(story)
+    return buffer.getvalue()
+
+
+def render_result_card(
+    name: str,
+    amount: float,
+    unit: str,
+    stage: str,
+    card_class: str = "",
+) -> str:
+    return f"""
+    <div class="dose-card {card_class}">
+      <div class="dose-top">
+        <span class="dose-name">{name}</span>
+        <span class="dose-stage">{stage}</span>
+      </div>
+      <div class="dose-value">{amount:.2f}<span class="dose-unit"> {unit}</span></div>
+    </div>
+    """
+
 
 st.set_page_config(
     page_title="配方中控台",
@@ -57,9 +214,138 @@ div[data-baseweb="input"]{border-radius:12px}
 .stButton button,.stDownloadButton button,.stFormSubmitButton button{min-height:52px;border-radius:14px;font-size:1.08rem;font-weight:800}
 div[data-testid="stDataFrame"]{border-radius:16px;overflow:hidden}
 .small{color:var(--muted);font-size:.92rem}
+
+.ingredient-title{
+  font-size:1.3rem;
+  font-weight:800;
+  color:var(--ink);
+  margin:1.1rem 0 .25rem;
+  padding:.58rem .85rem;
+  border-radius:13px;
+  background:linear-gradient(90deg,rgba(24,165,142,.16),transparent);
+}
+.ingredient-divider{
+  height:1px;
+  background:linear-gradient(90deg,var(--line),transparent);
+  margin:.35rem 0 .9rem;
+}
+div[data-testid="stSlider"]{
+  padding:.15rem .1rem .4rem;
+}
+div[data-testid="stSlider"] label{
+  font-size:1.06rem!important;
+  font-weight:700!important;
+}
+div[data-testid="stSlider"] [role="slider"]{
+  width:23px!important;
+  height:23px!important;
+}
+
+
+.result-shell{
+  background:linear-gradient(145deg,#0f3533,#0a5d55);
+  border-radius:26px;
+  padding:1.35rem;
+  margin:1.1rem 0;
+  box-shadow:0 18px 42px rgba(8,65,59,.18);
+}
+.result-heading{
+  color:white;
+  font-size:clamp(1.55rem,4vw,2.15rem);
+  font-weight:800;
+  margin:0 0 .25rem;
+}
+.result-subtitle{
+  color:rgba(255,255,255,.76);
+  font-size:1rem;
+  margin-bottom:1rem;
+}
+.dose-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.85rem;
+}
+.dose-card{
+  background:rgba(255,255,255,.97);
+  border:1px solid rgba(255,255,255,.55);
+  border-radius:19px;
+  padding:1rem 1.05rem 1.12rem;
+  box-shadow:0 8px 22px rgba(4,44,40,.13);
+}
+.dose-card.post{
+  background:linear-gradient(145deg,#fff8e9,#ffffff);
+  border-color:#efd59f;
+}
+.dose-card.final{
+  background:linear-gradient(145deg,#f9edf1,#ffffff);
+  border-color:#e5bdc8;
+}
+.dose-card.water-negative{
+  background:linear-gradient(145deg,#ffe6e3,#fff7f6);
+  border:2px solid #cf4c43;
+}
+.dose-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:.6rem;
+}
+.dose-name{
+  color:#163638;
+  font-size:clamp(1.15rem,3vw,1.42rem);
+  font-weight:800;
+}
+.dose-stage{
+  color:#527071;
+  background:#e7f2ef;
+  border-radius:999px;
+  padding:.22rem .55rem;
+  font-size:.78rem;
+  font-weight:800;
+  white-space:nowrap;
+}
+.dose-card.post .dose-stage{background:#f6e6bd;color:#7e5814}
+.dose-card.final .dose-stage{background:#f2dce3;color:#81394d}
+.dose-card.water-negative .dose-stage{background:#f4c6c1;color:#8d2c26}
+.dose-value{
+  color:#08675d;
+  font-size:clamp(2.25rem,7vw,3.5rem);
+  line-height:1.05;
+  font-weight:800;
+  letter-spacing:-.04em;
+  margin-top:.75rem;
+}
+.dose-card.water-negative .dose-value{color:#b4322b}
+.dose-unit{
+  font-size:clamp(1.05rem,3vw,1.35rem);
+  letter-spacing:0;
+  color:#587172;
+}
+.result-total{
+  display:flex;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:.75rem;
+  color:white;
+  margin-top:1rem;
+  padding:.85rem 1rem;
+  border-radius:15px;
+  background:rgba(255,255,255,.11);
+  font-size:1.04rem;
+  font-weight:700;
+}
+.copy-area textarea{
+  font-family:'Noto Sans TC',sans-serif!important;
+  font-size:1.05rem!important;
+  line-height:1.65!important;
+}
+
 @media(max-width:700px){
  .block-container{padding:.8rem .75rem 3rem}
  .hero{padding:1.35rem;border-radius:21px}
+ .dose-grid{grid-template-columns:1fr}
+ .result-shell{padding:.9rem;border-radius:20px}
+ .dose-card{padding:.9rem}
  p,label,.stMarkdown,.stCaption{font-size:1rem}
 }
 </style>
@@ -95,6 +381,12 @@ with tab_formula:
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("### 母液設定")
+        st.markdown(
+            '<div class="notice"><b>拖動式設定：</b>左右拖曳滑桿調整比例與濃度，'
+            '每次可調整 0.1%，目前數值會直接顯示在滑桿上。</div>',
+            unsafe_allow_html=True,
+        )
+
         defaults = [
             ("V", "V", 20.0, 40.0),
             ("Q", "Q", 20.0, 60.0),
@@ -102,13 +394,33 @@ with tab_formula:
             ("M4", "額外母液", 0.0, 40.0),
         ]
         active, concentrations = {}, {}
-        for key, label, p, c in defaults:
-            cols = st.columns([1, 1])
-            active[key] = cols[0].number_input(
-                f"{label} 有效比例 (%)", 0.0, 100.0, p, .1, format="%.2f"
+
+        for key, label, default_ratio, default_concentration in defaults:
+            st.markdown(
+                f'<div class="ingredient-title">{label}</div>',
+                unsafe_allow_html=True,
             )
-            concentrations[key] = cols[1].number_input(
-                f"{label} 母液濃度 (%)", .01, 100.0, c, .1, format="%.2f"
+
+            active[key] = st.slider(
+                f"{label} 有效比例 (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=default_ratio,
+                step=0.1,
+                key=f"{key}_ratio_slider",
+            )
+            concentrations[key] = st.slider(
+                f"{label} 母液濃度 (%)",
+                min_value=0.1,
+                max_value=100.0,
+                value=default_concentration,
+                step=0.1,
+                key=f"{key}_concentration_slider",
+            )
+
+            st.markdown(
+                '<div class="ingredient-divider"></div>',
+                unsafe_allow_html=True,
             )
 
         st.markdown("### 後添加")
@@ -165,22 +477,105 @@ with tab_formula:
                 unsafe_allow_html=True
             )
 
-        m = st.columns(4)
-        m[0].metric("母液＋水基準", f"{result.pre_g_base_total:.2f} {result.unit}")
-        m[1].metric("G", f"{result.g_amount:.2f} {result.unit}")
-        m[2].metric("額外添加劑", f"{result.additive_amount:.2f} {result.unit}")
-        m[3].metric("D7", f"{result.d7_amount:.2f} {result.unit}")
+        cards = [
+            render_result_card(
+                "V", result.mother_liquor_amounts["V"], result.unit, "母液"
+            ),
+            render_result_card(
+                "Q", result.mother_liquor_amounts["Q"], result.unit, "母液"
+            ),
+            render_result_card(
+                "SE", result.mother_liquor_amounts["SE"], result.unit, "母液"
+            ),
+            render_result_card(
+                "額外母液",
+                result.mother_liquor_amounts["M4"],
+                result.unit,
+                "母液",
+            ),
+            render_result_card(
+                "水",
+                result.water_amount,
+                result.unit,
+                "補水" if not result.has_negative_water else "水量不足",
+                "water-negative" if result.has_negative_water else "",
+            ),
+            render_result_card(
+                "G", result.g_amount, result.unit, "後添加", "post"
+            ),
+            render_result_card(
+                "額外添加劑",
+                result.additive_amount,
+                result.unit,
+                "後添加",
+                "post",
+            ),
+            render_result_card(
+                "D7", result.d7_amount, result.unit, "最後添加", "final"
+            ),
+        ]
 
-        st.markdown("### 投料表")
+        st.markdown(
+            f"""
+            <div class="result-shell">
+              <div class="result-heading">最終投料結果</div>
+              <div class="result-subtitle">
+                請依母液、水、後添加與最後添加的順序操作
+              </div>
+              <div class="dose-grid">
+                {''.join(cards)}
+              </div>
+              <div class="result-total">
+                <span>主配方合計：{result.total_before_d7:.2f} {result.unit}</span>
+                <span>含 D7 總量：{result.total_with_d7:.2f} {result.unit}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        formula_text = build_formula_text(result)
+        st.markdown("### 複製與下載")
+        st.markdown('<div class="copy-area">', unsafe_allow_html=True)
+        st.text_area(
+            "配方文字",
+            formula_text,
+            height=285,
+            help="點入文字框後可全選並複製到 LINE、Email 或工作群組。",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        operator = st.text_input(
+            "PDF 配方單操作員（選填）",
+            placeholder="例如：王小明",
+        )
         df = pd.DataFrame(result.rows())
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        st.download_button(
-            "下載投料表 CSV",
+
+        download_cols = st.columns(3)
+        download_cols[0].download_button(
+            "下載 CSV",
             df.to_csv(index=False).encode("utf-8-sig"),
             file_name=f"formula_{datetime.now():%Y%m%d_%H%M%S}.csv",
             mime="text/csv",
             use_container_width=True,
         )
+        download_cols[1].download_button(
+            "下載文字配方",
+            formula_text.encode("utf-8"),
+            file_name=f"formula_{datetime.now():%Y%m%d_%H%M%S}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+        download_cols[2].download_button(
+            "下載 PDF 配方單",
+            build_formula_pdf(result, operator),
+            file_name=f"formula_{datetime.now():%Y%m%d_%H%M%S}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+
+        with st.expander("查看詳細計算表"):
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
 with tab_qc:
     st.markdown("## 品管補加計算")
