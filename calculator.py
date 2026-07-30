@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from typing import Mapping
 
 D7_RATIO_TO_Q = 0.003
@@ -15,16 +14,6 @@ SPECIFIC_GRAVITIES: dict[str, float] = {
     "SE": 1.078,
     "G": 1.800,
     "WATER": 1.000,
-}
-
-
-# pH 理論估算使用的原料設定。
-# 僅納入已知 pH 且可換算體積的 V、Q、SE 與水。
-PH_VALUES: dict[str, float] = {
-    "V": 2.6,
-    "Q": 3.6,
-    "SE": 3.9,
-    "WATER": 7.0,
 }
 
 
@@ -55,8 +44,6 @@ class FormulaResult:
     solid_content_percent: float
     estimated_specific_gravity: float | None
     specific_gravity_coverage_percent: float
-    estimated_ph: float | None
-    ph_coverage_percent: float
 
     @property
     def has_negative_water(self) -> bool:
@@ -65,10 +52,6 @@ class FormulaResult:
     @property
     def has_complete_density_coverage(self) -> bool:
         return self.specific_gravity_coverage_percent >= 99.995
-
-    @property
-    def has_complete_ph_coverage(self) -> bool:
-        return self.ph_coverage_percent >= 99.995
 
     def rows(self) -> list[dict[str, float | str | None]]:
         labels = {"V": "V", "Q": "Q", "SE": "SE", "M4": "額外母液"}
@@ -89,11 +72,6 @@ class FormulaResult:
                         if key in SPECIFIC_GRAVITIES
                         else "未納入"
                     ),
-                    "pH 設定": (
-                        f"{PH_VALUES[key]:.1f}"
-                        if key in PH_VALUES
-                        else "未納入"
-                    ),
                     "說明": "依 G 前基準換算",
                 }
             )
@@ -105,7 +83,6 @@ class FormulaResult:
                     "固成分／母液濃度 (%)": 0.0,
                     f"投料量 ({self.unit})": round(self.water_amount, 2),
                     "比重估算": f"{SPECIFIC_GRAVITIES['WATER']:.3f}",
-                    "pH 設定": f"{PH_VALUES['WATER']:.1f}",
                     "說明": "補足 G 前基準",
                 },
                 {
@@ -114,7 +91,6 @@ class FormulaResult:
                     "固成分／母液濃度 (%)": 100.0,
                     f"投料量 ({self.unit})": round(self.g_amount, 2),
                     "比重估算": f"{SPECIFIC_GRAVITIES['G']:.3f}",
-                    "pH 設定": "不納入",
                     "說明": "葡萄糖酸鈉，母液與水完成後添加",
                 },
                 {
@@ -129,7 +105,6 @@ class FormulaResult:
                         self.additive_amount, 2
                     ),
                     "比重估算": "未納入",
-                    "pH 設定": "未納入",
                     "說明": "最終目標總量占比",
                 },
                 {
@@ -138,8 +113,7 @@ class FormulaResult:
                     "固成分／母液濃度 (%)": 100.0,
                     f"投料量 ({self.unit})": round(self.d7_amount, 2),
                     "比重估算": "不納入",
-                    "pH 設定": "不納入",
-                    "說明": "Q 用量 × 0.003；不納入固成分、比重及 pH",
+                    "說明": "Q 用量 × 0.003；不納入固成分及比重",
                 },
             ]
         )
@@ -246,55 +220,6 @@ def _calculate_estimated_specific_gravity(
     return included_mass / included_volume, coverage_percent
 
 
-
-def _calculate_estimated_ph(
-    mother_liquor_amounts: Mapping[str, float],
-    water_amount: float,
-    total_before_d7: float,
-) -> tuple[float | None, float]:
-    """
-    將已知 pH 換算為氫離子濃度，再依估算體積加權混合。
-
-    納入：V、Q、SE、水。
-    排除：額外母液、G、額外添加劑、D7。
-
-    這是未考慮緩衝、酸鹼反應與活度係數的理論估算值。
-    """
-    if water_amount < 0:
-        return None, 0.0
-
-    included_masses = {
-        "V": mother_liquor_amounts["V"],
-        "Q": mother_liquor_amounts["Q"],
-        "SE": mother_liquor_amounts["SE"],
-        "WATER": water_amount,
-    }
-    included_mass = sum(included_masses.values())
-    coverage_percent = (
-        included_mass / total_before_d7 * 100
-        if total_before_d7 > 0
-        else 0.0
-    )
-
-    volume_by_material = {
-        key: mass / SPECIFIC_GRAVITIES[key]
-        for key, mass in included_masses.items()
-        if mass > 0
-    }
-    total_volume = sum(volume_by_material.values())
-    if total_volume <= 0:
-        return None, coverage_percent
-
-    mixed_hydrogen_ion = sum(
-        (10 ** (-PH_VALUES[key])) * volume
-        for key, volume in volume_by_material.items()
-    ) / total_volume
-
-    if mixed_hydrogen_ion <= 0:
-        return None, coverage_percent
-
-    return -math.log10(mixed_hydrogen_ion), coverage_percent
-
 def calculate_formula(
     target_final_total: float,
     active_percentages: Mapping[str, float],
@@ -313,7 +238,7 @@ def calculate_formula(
       G量 = pre_g_base × G%
 
     D7 為主配方之外：Q × 0.003。
-    D7 不納入固成分、比重及 pH 估算。
+    D7 不納入固成分及比重估算。
     """
     target_final_total = float(target_final_total)
     if target_final_total <= 0:
@@ -406,11 +331,6 @@ def calculate_formula(
         g_amount=g_amount,
         total_before_d7=total_before_d7,
     )
-    estimated_ph, ph_coverage_percent = _calculate_estimated_ph(
-        mother_liquor_amounts=mother_liquor_amounts,
-        water_amount=water_amount,
-        total_before_d7=total_before_d7,
-    )
 
     return FormulaResult(
         formula_name=formula_name,
@@ -436,8 +356,6 @@ def calculate_formula(
         specific_gravity_coverage_percent=(
             specific_gravity_coverage_percent
         ),
-        estimated_ph=estimated_ph,
-        ph_coverage_percent=ph_coverage_percent,
     )
 
 

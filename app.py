@@ -21,7 +21,6 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from calculator import (
     D7_RATIO_TO_Q,
     SPECIFIC_GRAVITIES,
-    PH_VALUES,
     FormulaError,
     calculate_correction_addition,
     calculate_formula,
@@ -45,11 +44,6 @@ def build_formula_text(result) -> str:
         if result.estimated_specific_gravity is not None
         else "無法估算"
     )
-    estimated_ph_text = (
-        f"{result.estimated_ph:.2f}"
-        if result.estimated_ph is not None
-        else "無法估算"
-    )
     lines = [
         f"【{result.formula_name}】",
         f"最終目標量：{result.target_final_total:.2f} {result.unit}",
@@ -59,8 +53,6 @@ def build_formula_text(result) -> str:
             "比重估算涵蓋率："
             f"{result.specific_gravity_coverage_percent:.2f}%"
         ),
-        f"理論估算 pH：{estimated_ph_text}",
-        f"pH 計算涵蓋率：{result.ph_coverage_percent:.2f}%",
         "",
     ]
     lines.extend(
@@ -140,19 +132,6 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
             ),
             body_style,
         ),
-        Paragraph(
-            (
-                "理論估算 pH："
-                + (
-                    f"{result.estimated_ph:.2f}"
-                    if result.estimated_ph is not None
-                    else "無法估算"
-                )
-                + "　涵蓋率："
-                + f"{result.ph_coverage_percent:.2f}%"
-            ),
-            body_style,
-        ),
         Spacer(1, 14),
     ]
 
@@ -199,7 +178,6 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
             Spacer(1, 8),
             Paragraph(
                 "比重估算未納入額外母液、額外添加劑與 D7；"
-                "pH 估算僅納入 V、Q、SE 與水。"
                 "D7 亦未納入配方固成分。",
                 body_style,
             ),
@@ -306,7 +284,7 @@ div[data-testid="stSlider"] [role="slider"]{
 
 .property-panel{
   display:grid;
-  grid-template-columns:minmax(0,1.45fr) repeat(3,minmax(0,1fr));
+  grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr));
   gap:.8rem;
   margin:1rem 0;
 }
@@ -584,15 +562,6 @@ with tab_formula:
                 - G（葡萄糖酸鈉）：{SPECIFIC_GRAVITIES['G']:.3f}
                 - 水：{SPECIFIC_GRAVITIES['WATER']:.3f}
                 - 額外母液、額外添加劑、D7：暫不納入
-
-                **pH 理論估算**
-
-                - V：{PH_VALUES['V']:.1f}
-                - Q：{PH_VALUES['Q']:.1f}
-                - SE：{PH_VALUES['SE']:.1f}
-                - 水：{PH_VALUES['WATER']:.1f}
-                - G、額外母液、額外添加劑、D7：暫不納入
-                - 先將 pH 換算為氫離子濃度，再依估算體積加權
                 """
             )
         submitted = st.form_submit_button("開始計算", type="primary", use_container_width=True)
@@ -625,14 +594,6 @@ with tab_formula:
                 "比重涵蓋率 (%)": round(
                     result.specific_gravity_coverage_percent, 2
                 ),
-                "理論估算 pH": (
-                    round(result.estimated_ph, 2)
-                    if result.estimated_ph is not None
-                    else None
-                ),
-                "pH 涵蓋率 (%)": round(
-                    result.ph_coverage_percent, 2
-                ),
                 "最終目標量": round(result.target_final_total, 2),
                 "單位": result.unit,
                 "V": round(result.mother_liquor_amounts["V"], 2),
@@ -660,11 +621,6 @@ with tab_formula:
             if result.estimated_specific_gravity is not None
             else "無法估算"
         )
-        estimated_ph_text = (
-            f"{result.estimated_ph:.2f}"
-            if result.estimated_ph is not None
-            else "無法估算"
-        )
         st.markdown(
             f"""
             <div class="property-panel">
@@ -684,13 +640,6 @@ with tab_formula:
                   涵蓋 {result.specific_gravity_coverage_percent:.2f}% 配方質量
                 </div>
               </div>
-              <div class="property-item">
-                <div class="property-label">理論估算 pH</div>
-                <div class="property-value">{estimated_ph_text}</div>
-                <div class="property-note">
-                  涵蓋 {result.ph_coverage_percent:.2f}% 配方質量
-                </div>
-              </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -701,14 +650,6 @@ with tab_formula:
                 '<div class="warning"><b>比重為估算值：</b>'
                 '額外母液與額外添加劑因尚無比重資料，暫未納入。'
                 '畫面已顯示本次估算涵蓋率。</div>',
-                unsafe_allow_html=True,
-            )
-
-        if not result.has_complete_ph_coverage:
-            st.markdown(
-                '<div class="warning"><b>pH 為理論估算值：</b>'
-                '僅納入 V、Q、SE 與水；G、額外母液、額外添加劑及 D7 '
-                '暫未納入。實際結果仍應以 pH 計量測為準。</div>',
                 unsafe_allow_html=True,
             )
 
@@ -804,14 +745,6 @@ with tab_formula:
         )
         df["比重估算涵蓋率 (%)"] = round(
             result.specific_gravity_coverage_percent, 2
-        )
-        df["理論估算 pH"] = (
-            round(result.estimated_ph, 2)
-            if result.estimated_ph is not None
-            else None
-        )
-        df["pH 計算涵蓋率 (%)"] = round(
-            result.ph_coverage_percent, 2
         )
 
         safe_formula_name = "".join(
@@ -958,16 +891,6 @@ with tab_rules:
     `估算比重 = 已知比重材料總重量 ÷ Σ(材料重量 ÷ 材料比重)`
 
     目前納入 V、Q、SE、G 與水；額外母液、額外添加劑及 D7 暫不納入。
-
-    **理論估算 pH**
-
-    `混合 [H⁺] = Σ(10^(-pH) × 原料估算體積) ÷ 已知原料估算總體積`
-
-    `估算 pH = −log10(混合 [H⁺])`
-
-    目前納入 V（2.6）、Q（3.6）、SE（3.9）與水（7.0）。
-    G、額外母液、額外添加劑及 D7 暫不納入。
-    此結果未考慮緩衝與酸鹼反應，正式品管應以實測為準。
 
     **品管補加**
 

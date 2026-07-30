@@ -1,7 +1,6 @@
 import unittest
 
 from calculator import (
-    PH_VALUES,
     SPECIFIC_GRAVITIES,
     calculate_correction_addition,
     calculate_formula,
@@ -85,45 +84,6 @@ class FormulaTests(unittest.TestCase):
             result.specific_gravity_coverage_percent,
             100,
         )
-
-    def test_ph_for_v_only_formula(self):
-        result = calculate_formula(
-            target_final_total=100,
-            active_percentages={"V": 40, "Q": 0, "SE": 0, "M4": 0},
-            concentrations={"V": 40, "Q": 60, "SE": 40, "M4": 40},
-            g_percent=0,
-        )
-        self.assertAlmostEqual(result.estimated_ph, PH_VALUES["V"], places=6)
-        self.assertAlmostEqual(result.ph_coverage_percent, 100)
-
-    def test_ph_uses_hydrogen_ion_volume_weighting(self):
-        result = calculate_formula(
-            target_final_total=100,
-            active_percentages={"V": 20, "Q": 30, "SE": 0, "M4": 0},
-            concentrations={"V": 40, "Q": 60, "SE": 40, "M4": 40},
-            g_percent=0,
-        )
-        v_volume = result.mother_liquor_amounts["V"] / SPECIFIC_GRAVITIES["V"]
-        q_volume = result.mother_liquor_amounts["Q"] / SPECIFIC_GRAVITIES["Q"]
-        water_volume = result.water_amount / SPECIFIC_GRAVITIES["WATER"]
-        expected_h = (
-            10 ** (-PH_VALUES["V"]) * v_volume
-            + 10 ** (-PH_VALUES["Q"]) * q_volume
-            + 10 ** (-PH_VALUES["WATER"]) * water_volume
-        ) / (v_volume + q_volume + water_volume)
-        expected_ph = -__import__("math").log10(expected_h)
-        self.assertAlmostEqual(result.estimated_ph, expected_ph, places=9)
-
-    def test_ph_excludes_g_and_unknown_materials(self):
-        result = calculate_formula(
-            target_final_total=100,
-            active_percentages={"V": 0, "Q": 0, "SE": 0, "M4": 10},
-            concentrations={"V": 40, "Q": 60, "SE": 40, "M4": 40},
-            g_percent=10,
-            additive_percent_of_final=10,
-        )
-        self.assertIsNotNone(result.estimated_ph)
-        self.assertLess(result.ph_coverage_percent, 100)
 
     def test_qc_correction(self):
         result = calculate_correction_addition(
