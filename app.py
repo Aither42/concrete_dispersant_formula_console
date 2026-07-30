@@ -168,18 +168,20 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
     )
     story.append(table)
     story.append(Spacer(1, 14))
-    story.append(
-        Paragraph(
-            f"主配方合計：{result.total_before_d7:.2f} {result.unit}　"
-            f"含 D7 總量：{result.total_with_d7:.2f} {result.unit}",
-            body_style,
-        ),
-        Spacer(1, 8),
-        Paragraph(
-            "比重估算未納入額外母液、額外添加劑與 D7；"
-            "D7 亦未納入配方固成分。",
-            body_style,
-        )
+    story.extend(
+        [
+            Paragraph(
+                f"主配方合計：{result.total_before_d7:.2f} {result.unit}　"
+                f"含 D7 總量：{result.total_with_d7:.2f} {result.unit}",
+                body_style,
+            ),
+            Spacer(1, 8),
+            Paragraph(
+                "比重估算未納入額外母液、額外添加劑與 D7；"
+                "D7 亦未納入配方固成分。",
+                body_style,
+            ),
+        ]
     )
     document.build(story)
     return buffer.getvalue()
