@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Mapping
 
 D7_RATIO_TO_Q = 0.003
@@ -118,6 +119,64 @@ class FormulaResult:
             ]
         )
         return rows
+
+
+@dataclass(frozen=True)
+class ReverseFormulaResult:
+    unit: str
+    amounts: dict[str, float]
+    concentrations: dict[str, float]
+    base_total: float
+    total_with_g: float
+    input_percentages: dict[str, float]
+    rounded_percentages: dict[str, int]
+    formula_name: str
+    is_three_digit_name: bool
+    max_rounding_difference: float
+
+    @property
+    def a_percent(self) -> float:
+        return (
+            self.input_percentages["V"]
+            + self.input_percentages["Q"]
+        )
+
+    def rows(self) -> list[dict[str, float | int | str]]:
+        return [
+            {
+                "項目": "V 輸入",
+                "精確比例 (%)": round(
+                    self.input_percentages["V"], 4
+                ),
+                "命名數字": self.rounded_percentages["V"],
+            },
+            {
+                "項目": "Q 輸入",
+                "精確比例 (%)": round(
+                    self.input_percentages["Q"], 4
+                ),
+                "命名數字": self.rounded_percentages["Q"],
+            },
+            {
+                "項目": "A = V + Q",
+                "精確比例 (%)": round(self.a_percent, 4),
+                "命名數字": self.rounded_percentages["A"],
+            },
+            {
+                "項目": "SE 輸入",
+                "精確比例 (%)": round(
+                    self.input_percentages["SE"], 4
+                ),
+                "命名數字": self.rounded_percentages["SE"],
+            },
+            {
+                "項目": "G 輸入",
+                "精確比例 (%)": round(
+                    self.input_percentages["G"], 4
+                ),
+                "命名數字": self.rounded_percentages["G"],
+            },
+        ]
 
 
 @dataclass(frozen=True)
@@ -358,6 +417,150 @@ def calculate_formula(
         ),
     )
 
+
+
+def _round_half_up(value: float) -> int:
+    """以一般認知的四捨五入（0.5 進位）轉為整數。"""
+    return int(
+        Decimal(str(float(value))).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
+
+
+def calculate_reverse_formula(
+    v_amount: float,
+    q_amount: float,
+    se_amount: float,
+    g_amount: float,
+    water_amount: float,
+    v_concentration: float = 40.0,
+    q_concentration: float = 60.0,
+    se_concentration: float = 40.0,
+    unit: str = "kg",
+) -> ReverseFormulaResult:
+    """
+    由實際投料量反推配方輸入比例與名稱。
+
+    配製基準：
+      base = V + Q + SE + 水
+
+    反推輸入比例：
+      V%  = V量  × V母液濃度  ÷ base
+      Q%  = Q量  × Q母液濃度  ÷ base
+      SE% = SE量 × SE母液濃度 ÷ base
+      G%  = G量 ÷ base × 100
+
+    名稱：
+      A = 四捨五入後的 V 數字 + Q 數字
+      B = 四捨五入後的 SE 數字
+      C = 四捨五入後的 G 數字
+      配方名稱 = ABC(VＤQＥ)
+
+    例如 V=8、Q=1、SE=5、G=6，名稱為 956(V8Q1)。
+    """
+    amounts = {
+        "V": float(v_amount),
+        "Q": float(q_amount),
+        "SE": float(se_amount),
+        "G": float(g_amount),
+        "WATER": float(water_amount),
+    }
+    for key, amount in amounts.items():
+        if amount < 0:
+            label = "水" if key == "WATER" else key
+            raise FormulaError(f"{label} 用量不可小於 0。")
+
+    concentrations = {
+        "V": _percent(
+            v_concentration,
+            "V 母液濃度",
+            positive=True,
+        ),
+        "Q": _percent(
+            q_concentration,
+            "Q 母液濃度",
+            positive=True,
+        ),
+        "SE": _percent(
+            se_concentration,
+            "SE 母液濃度",
+            positive=True,
+        ),
+    }
+
+    base_total = (
+        amounts["V"]
+        + amounts["Q"]
+        + amounts["SE"]
+        + amounts["WATER"]
+    )
+    if base_total <= 0:
+        raise FormulaError(
+            "V、Q、SE 與水的合計必須大於 0。"
+        )
+
+    input_percentages = {
+        "V": amounts["V"] * concentrations["V"] / base_total,
+        "Q": amounts["Q"] * concentrations["Q"] / base_total,
+        "SE": (
+            amounts["SE"]
+            * concentrations["SE"]
+            / base_total
+        ),
+        "G": amounts["G"] / base_total * 100,
+    }
+
+    rounded_v = _round_half_up(input_percentages["V"])
+    rounded_q = _round_half_up(input_percentages["Q"])
+    rounded_se = _round_half_up(input_percentages["SE"])
+    rounded_g = _round_half_up(input_percentages["G"])
+    rounded_a = rounded_v + rounded_q
+
+    rounded_percentages = {
+        "V": rounded_v,
+        "Q": rounded_q,
+        "A": rounded_a,
+        "SE": rounded_se,
+        "G": rounded_g,
+    }
+    formula_name = (
+        f"{rounded_a}{rounded_se}{rounded_g}"
+        f"(V{rounded_v}Q{rounded_q})"
+    )
+
+    naming_values = [
+        rounded_a,
+        rounded_se,
+        rounded_g,
+        rounded_v,
+        rounded_q,
+    ]
+    is_three_digit_name = all(
+        0 <= value <= 9
+        for value in naming_values
+    )
+    max_rounding_difference = max(
+        abs(
+            input_percentages[key]
+            - rounded_percentages[key]
+        )
+        for key in ("V", "Q", "SE", "G")
+    )
+
+    return ReverseFormulaResult(
+        unit=unit,
+        amounts=amounts,
+        concentrations=concentrations,
+        base_total=base_total,
+        total_with_g=base_total + amounts["G"],
+        input_percentages=input_percentages,
+        rounded_percentages=rounded_percentages,
+        formula_name=formula_name,
+        is_three_digit_name=is_three_digit_name,
+        max_rounding_difference=max_rounding_difference,
+    )
 
 def calculate_correction_addition(
     batch_amount: float,

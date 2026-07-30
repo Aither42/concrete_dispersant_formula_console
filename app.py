@@ -24,6 +24,7 @@ from calculator import (
     FormulaError,
     calculate_correction_addition,
     calculate_formula,
+    calculate_reverse_formula,
 )
 
 
@@ -205,6 +206,62 @@ def render_result_row(
     """
 
 
+def render_reverse_row(
+    label: str,
+    exact_percent: float,
+    naming_value: int,
+) -> str:
+    return f"""
+    <div class="reverse-row">
+      <div class="reverse-label">{label}</div>
+      <div class="reverse-values">
+        <span class="reverse-exact">{exact_percent:.4f}%</span>
+        <span class="reverse-arrow">→</span>
+        <span class="reverse-rounded">{naming_value}</span>
+      </div>
+    </div>
+    """
+
+
+def build_reverse_text(result) -> str:
+    return "\n".join(
+        [
+            "【反推配方結果】",
+            f"配方名稱：{result.formula_name}",
+            f"母液＋水基準：{result.base_total:.2f} {result.unit}",
+            f"含 G 總量：{result.total_with_g:.2f} {result.unit}",
+            "",
+            (
+                "V 輸入："
+                f"{result.input_percentages['V']:.4f}%"
+                f" → {result.rounded_percentages['V']}"
+            ),
+            (
+                "Q 輸入："
+                f"{result.input_percentages['Q']:.4f}%"
+                f" → {result.rounded_percentages['Q']}"
+            ),
+            (
+                "A = V + Q："
+                f"{result.a_percent:.4f}%"
+                f" → {result.rounded_percentages['A']}"
+            ),
+            (
+                "SE 輸入："
+                f"{result.input_percentages['SE']:.4f}%"
+                f" → {result.rounded_percentages['SE']}"
+            ),
+            (
+                "G 輸入："
+                f"{result.input_percentages['G']:.4f}%"
+                f" → {result.rounded_percentages['G']}"
+            ),
+            "",
+            "命名採四捨五入（0.5 進位）。",
+        ]
+    )
+
+
 
 st.set_page_config(
     page_title="配方中控台",
@@ -314,6 +371,83 @@ div[data-testid="stSlider"] [role="slider"]{
   margin-top:.25rem;
 }
 
+
+.reverse-name-card{
+  background:linear-gradient(145deg,#123f3b,#0b6b61);
+  border-radius:24px;
+  padding:1.35rem;
+  margin:1rem 0;
+  color:white;
+  box-shadow:0 18px 42px rgba(8,65,59,.18);
+  text-align:center;
+}
+.reverse-name-label{
+  font-size:1rem;
+  font-weight:700;
+  opacity:.8;
+}
+.reverse-name-value{
+  font-size:clamp(2.35rem,8vw,4.25rem);
+  line-height:1.12;
+  font-weight:800;
+  letter-spacing:-.045em;
+  margin-top:.35rem;
+}
+.reverse-name-note{
+  font-size:.9rem;
+  opacity:.78;
+  margin-top:.5rem;
+}
+.reverse-list{
+  background:white;
+  border:1px solid var(--line);
+  border-radius:18px;
+  overflow:hidden;
+  margin:.9rem 0;
+}
+.reverse-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:1rem;
+  min-height:68px;
+  padding:.75rem 1rem;
+  border-bottom:1px solid var(--line);
+}
+.reverse-row:last-child{border-bottom:none}
+.reverse-label{
+  font-size:1.12rem;
+  font-weight:800;
+  color:var(--ink);
+  text-align:left;
+}
+.reverse-values{
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:.7rem;
+  white-space:nowrap;
+  text-align:right;
+}
+.reverse-exact{
+  color:var(--muted);
+  font-size:1.05rem;
+  font-variant-numeric:tabular-nums;
+}
+.reverse-arrow{
+  color:#8aa09f;
+  font-size:1.15rem;
+}
+.reverse-rounded{
+  min-width:42px;
+  color:var(--brand);
+  font-size:1.75rem;
+  font-weight:800;
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+
 .result-shell{
   background:linear-gradient(145deg,#0f3533,#0a5d55);
   border-radius:24px;
@@ -418,6 +552,10 @@ div[data-testid="stSlider"] [role="slider"]{
  .block-container{padding:.8rem .75rem 3rem}
  .hero{padding:1.35rem;border-radius:21px}
  .property-panel{grid-template-columns:1fr}
+ .reverse-row{padding:.7rem .8rem;min-height:62px}
+ .reverse-values{gap:.45rem}
+ .reverse-exact{font-size:.92rem}
+ .reverse-rounded{font-size:1.5rem;min-width:34px}
  .result-shell{padding:.85rem;border-radius:20px}
  .formula-row{min-height:68px;padding:.75rem .85rem}
  .formula-left{gap:.45rem}
@@ -430,6 +568,7 @@ div[data-testid="stSlider"] [role="slider"]{
 st.session_state.setdefault("history", [])
 st.session_state.setdefault("last_result", None)
 st.session_state.setdefault("last_correction", None)
+st.session_state.setdefault("last_reverse", None)
 
 st.markdown("""
 <div class="hero">
@@ -441,8 +580,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_formula, tab_qc, tab_history, tab_rules = st.tabs(
-    ["配方設計", "品管補加", "紀錄", "規則"]
+tab_formula, tab_reverse, tab_qc, tab_history, tab_rules = st.tabs(
+    ["配方設計", "反推配方", "品管補加", "紀錄", "規則"]
 )
 
 with tab_formula:
@@ -778,6 +917,226 @@ with tab_formula:
         with st.expander("查看詳細計算表"):
             st.dataframe(df, use_container_width=True, hide_index=True)
 
+
+with tab_reverse:
+    st.markdown("## 反推配方")
+    st.markdown(
+        '<div class="notice"><b>使用方式：</b>'
+        '輸入 V、Q、SE、G 與水的實際公斤數，系統會以母液＋水總量作為配製基準，'
+        '反推出各成分的輸入比例與配方名稱。</div>',
+        unsafe_allow_html=True,
+    )
+
+    with st.form("reverse_formula_form"):
+        amount_cols_1 = st.columns(3)
+        reverse_v = amount_cols_1[0].number_input(
+            "V 用量 (kg)",
+            min_value=0.0,
+            value=20.0,
+            step=0.01,
+            format="%.2f",
+            key="reverse_v_amount",
+        )
+        reverse_q = amount_cols_1[1].number_input(
+            "Q 用量 (kg)",
+            min_value=0.0,
+            value=1.67,
+            step=0.01,
+            format="%.2f",
+            key="reverse_q_amount",
+        )
+        reverse_se = amount_cols_1[2].number_input(
+            "SE 用量 (kg)",
+            min_value=0.0,
+            value=12.5,
+            step=0.01,
+            format="%.2f",
+            key="reverse_se_amount",
+        )
+
+        amount_cols_2 = st.columns(2)
+        reverse_g = amount_cols_2[0].number_input(
+            "G 用量 (kg)",
+            min_value=0.0,
+            value=6.0,
+            step=0.01,
+            format="%.2f",
+            key="reverse_g_amount",
+        )
+        reverse_water = amount_cols_2[1].number_input(
+            "水用量 (kg)",
+            min_value=0.0,
+            value=65.83,
+            step=0.01,
+            format="%.2f",
+            key="reverse_water_amount",
+        )
+
+        with st.expander("母液濃度設定（通常不需修改）"):
+            concentration_cols = st.columns(3)
+            reverse_v_conc = concentration_cols[0].number_input(
+                "V 母液濃度 (%)",
+                min_value=0.01,
+                max_value=100.0,
+                value=40.0,
+                step=0.1,
+                format="%.2f",
+                key="reverse_v_concentration",
+            )
+            reverse_q_conc = concentration_cols[1].number_input(
+                "Q 母液濃度 (%)",
+                min_value=0.01,
+                max_value=100.0,
+                value=60.0,
+                step=0.1,
+                format="%.2f",
+                key="reverse_q_concentration",
+            )
+            reverse_se_conc = concentration_cols[2].number_input(
+                "SE 母液濃度 (%)",
+                min_value=0.01,
+                max_value=100.0,
+                value=40.0,
+                step=0.1,
+                format="%.2f",
+                key="reverse_se_concentration",
+            )
+
+        reverse_submit = st.form_submit_button(
+            "反推配方名稱",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if reverse_submit:
+        try:
+            reverse_result = calculate_reverse_formula(
+                v_amount=reverse_v,
+                q_amount=reverse_q,
+                se_amount=reverse_se,
+                g_amount=reverse_g,
+                water_amount=reverse_water,
+                v_concentration=reverse_v_conc,
+                q_concentration=reverse_q_conc,
+                se_concentration=reverse_se_conc,
+                unit="kg",
+            )
+        except FormulaError as exc:
+            st.error(str(exc))
+        else:
+            st.session_state.last_reverse = reverse_result
+
+    reverse_result = st.session_state.last_reverse
+    if reverse_result:
+        st.markdown(
+            f"""
+            <div class="reverse-name-card">
+              <div class="reverse-name-label">反推配方名稱</div>
+              <div class="reverse-name-value">{reverse_result.formula_name}</div>
+              <div class="reverse-name-note">
+                命名數字採四捨五入（0.5 進位）
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        metric_cols = st.columns(3)
+        metric_cols[0].metric(
+            "母液＋水基準",
+            f"{reverse_result.base_total:.2f} kg",
+        )
+        metric_cols[1].metric(
+            "含 G 總量",
+            f"{reverse_result.total_with_g:.2f} kg",
+        )
+        metric_cols[2].metric(
+            "最大取整差距",
+            f"{reverse_result.max_rounding_difference:.4f}%",
+        )
+
+        reverse_rows = [
+            render_reverse_row(
+                "V 輸入%",
+                reverse_result.input_percentages["V"],
+                reverse_result.rounded_percentages["V"],
+            ),
+            render_reverse_row(
+                "Q 輸入%",
+                reverse_result.input_percentages["Q"],
+                reverse_result.rounded_percentages["Q"],
+            ),
+            render_reverse_row(
+                "A = V + Q",
+                reverse_result.a_percent,
+                reverse_result.rounded_percentages["A"],
+            ),
+            render_reverse_row(
+                "SE 輸入%",
+                reverse_result.input_percentages["SE"],
+                reverse_result.rounded_percentages["SE"],
+            ),
+            render_reverse_row(
+                "G 輸入%",
+                reverse_result.input_percentages["G"],
+                reverse_result.rounded_percentages["G"],
+            ),
+        ]
+        st.markdown(
+            f"""
+            <div class="reverse-list">
+              {''.join(reverse_rows)}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if not reverse_result.is_three_digit_name:
+            st.markdown(
+                '<div class="warning"><b>名稱格式提醒：</b>'
+                '取整後至少有一個命名數字超過 9，'
+                '因此產生的名稱不再是標準三位數 ABC 格式。</div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown(
+            '<div class="notice"><b>命名規則：</b>'
+            'A = 取整後的 V + Q；B = SE；C = G；'
+            '括號內顯示 V 與 Q 的取整數字。</div>',
+            unsafe_allow_html=True,
+        )
+
+        reverse_text = build_reverse_text(reverse_result)
+        st.text_area(
+            "反推結果文字",
+            reverse_text,
+            height=250,
+            help="可直接全選複製。",
+        )
+        reverse_df = pd.DataFrame(reverse_result.rows())
+        reverse_download_cols = st.columns(2)
+        reverse_download_cols[0].download_button(
+            "下載反推結果 CSV",
+            reverse_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name=(
+                f"reverse_{reverse_result.formula_name}_"
+                f"{datetime.now():%Y%m%d_%H%M%S}.csv"
+            ),
+            mime="text/csv",
+            use_container_width=True,
+        )
+        reverse_download_cols[1].download_button(
+            "下載反推結果文字",
+            reverse_text.encode("utf-8"),
+            file_name=(
+                f"reverse_{reverse_result.formula_name}_"
+                f"{datetime.now():%Y%m%d_%H%M%S}.txt"
+            ),
+            mime="text/plain",
+            use_container_width=True,
+        )
+
+
 with tab_qc:
     st.markdown("## 品管補加計算")
     st.markdown(
@@ -852,6 +1211,7 @@ with tab_history:
         st.session_state.history = []
         st.session_state.last_result = None
         st.session_state.last_correction = None
+        st.session_state.last_reverse = None
         st.rerun()
 
 with tab_rules:
@@ -891,6 +1251,26 @@ with tab_rules:
     `估算比重 = 已知比重材料總重量 ÷ Σ(材料重量 ÷ 材料比重)`
 
     目前納入 V、Q、SE、G 與水；額外母液、額外添加劑及 D7 暫不納入。
+
+    **反推配方名稱**
+
+    `配製基準 = V + Q + SE + 水`
+
+    `V輸入% = V用量 × V母液濃度 ÷ 配製基準`
+
+    `Q輸入% = Q用量 × Q母液濃度 ÷ 配製基準`
+
+    `SE輸入% = SE用量 × SE母液濃度 ÷ 配製基準`
+
+    `G輸入% = G用量 ÷ 配製基準 × 100`
+
+    命名時先將 V、Q、SE、G 四捨五入為整數：
+
+    `A = V + Q；B = SE；C = G`
+
+    `名稱 = ABC(VＤQＥ)`
+
+    例如 V=8、Q=1、SE=5、G=6，名稱為 `956(V8Q1)`。
 
     **品管補加**
 

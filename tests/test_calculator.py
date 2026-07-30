@@ -4,6 +4,7 @@ from calculator import (
     SPECIFIC_GRAVITIES,
     calculate_correction_addition,
     calculate_formula,
+    calculate_reverse_formula,
 )
 
 
@@ -95,6 +96,61 @@ class FormulaTests(unittest.TestCase):
         expected = 1000 * (6 - 5) / (40 - 6)
         self.assertAlmostEqual(result.add_amount, expected)
         self.assertAlmostEqual(result.final_percent, 6)
+
+
+    def test_reverse_formula_example_name(self):
+        result = calculate_reverse_formula(
+            v_amount=20.0,
+            q_amount=1.6666666667,
+            se_amount=12.5,
+            g_amount=6.0,
+            water_amount=65.8333333333,
+            v_concentration=40.0,
+            q_concentration=60.0,
+            se_concentration=40.0,
+        )
+        self.assertAlmostEqual(
+            result.input_percentages["V"],
+            8.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            result.input_percentages["Q"],
+            1.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            result.input_percentages["SE"],
+            5.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            result.input_percentages["G"],
+            6.0,
+            places=6,
+        )
+        self.assertEqual(result.formula_name, "956(V8Q1)")
+        self.assertTrue(result.is_three_digit_name)
+
+    def test_reverse_formula_uses_half_up_rounding(self):
+        result = calculate_reverse_formula(
+            v_amount=21.25,
+            q_amount=0.0,
+            se_amount=0.0,
+            g_amount=0.0,
+            water_amount=78.75,
+            v_concentration=40.0,
+        )
+        self.assertAlmostEqual(
+            result.input_percentages["V"],
+            8.5,
+        )
+        self.assertEqual(
+            result.rounded_percentages["V"],
+            9,
+        )
+        self.assertEqual(result.formula_name, "900(V9Q0)")
+
 
 
 if __name__ == "__main__":
