@@ -20,6 +20,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from calculator import (
     D7_RATIO_TO_Q,
+    SPECIFIC_GRAVITIES,
     FormulaError,
     calculate_correction_addition,
     calculate_formula,
@@ -38,9 +39,20 @@ def build_formula_text(result) -> str:
         ("額外添加劑", result.additive_amount),
         ("D7（最後添加）", result.d7_amount),
     ]
+    specific_gravity_text = (
+        f"{result.estimated_specific_gravity:.3f}"
+        if result.estimated_specific_gravity is not None
+        else "無法估算"
+    )
     lines = [
-        "【配方投料結果】",
+        f"【{result.formula_name}】",
         f"最終目標量：{result.target_final_total:.2f} {result.unit}",
+        f"配方固成分：{result.solid_content_percent:.2f}%",
+        f"估算比重：{specific_gravity_text}",
+        (
+            "比重估算涵蓋率："
+            f"{result.specific_gravity_coverage_percent:.2f}%"
+        ),
         "",
     ]
     lines.extend(
@@ -69,7 +81,7 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
         leftMargin=42,
         topMargin=42,
         bottomMargin=42,
-        title="配方計算結果",
+        title=result.formula_name,
     )
 
     styles = getSampleStyleSheet()
@@ -93,7 +105,7 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
     )
 
     story = [
-        Paragraph("配方計算結果", title_style),
+        Paragraph(result.formula_name, title_style),
         Paragraph(
             f"日期：{datetime.now():%Y-%m-%d %H:%M}"
             + (f"　操作員：{operator}" if operator.strip() else ""),
@@ -101,6 +113,23 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
         ),
         Paragraph(
             f"最終目標量：{result.target_final_total:.2f} {result.unit}",
+            body_style,
+        ),
+        Paragraph(
+            f"配方固成分：{result.solid_content_percent:.2f}%",
+            body_style,
+        ),
+        Paragraph(
+            (
+                "估算比重："
+                + (
+                    f"{result.estimated_specific_gravity:.3f}"
+                    if result.estimated_specific_gravity is not None
+                    else "無法估算"
+                )
+                + "　涵蓋率："
+                + f"{result.specific_gravity_coverage_percent:.2f}%"
+            ),
             body_style,
         ),
         Spacer(1, 14),
@@ -143,6 +172,12 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
         Paragraph(
             f"主配方合計：{result.total_before_d7:.2f} {result.unit}　"
             f"含 D7 總量：{result.total_with_d7:.2f} {result.unit}",
+            body_style,
+        ),
+        Spacer(1, 8),
+        Paragraph(
+            "比重估算未納入額外母液、額外添加劑與 D7；"
+            "D7 亦未納入配方固成分。",
             body_style,
         )
     )
@@ -243,6 +278,39 @@ div[data-testid="stSlider"] [role="slider"]{
 }
 
 
+
+
+.property-panel{
+  display:grid;
+  grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr));
+  gap:.8rem;
+  margin:1rem 0;
+}
+.property-item{
+  background:white;
+  border:1px solid var(--line);
+  border-radius:17px;
+  padding:.95rem 1rem;
+  box-shadow:0 7px 20px rgba(31,65,60,.055);
+}
+.property-label{
+  color:var(--muted);
+  font-size:.9rem;
+  font-weight:700;
+  margin-bottom:.3rem;
+}
+.property-value{
+  color:var(--brand);
+  font-size:clamp(1.4rem,4vw,2rem);
+  font-weight:800;
+  line-height:1.2;
+  overflow-wrap:anywhere;
+}
+.property-note{
+  color:var(--muted);
+  font-size:.82rem;
+  margin-top:.25rem;
+}
 
 .result-shell{
   background:linear-gradient(145deg,#0f3533,#0a5d55);
@@ -347,6 +415,7 @@ div[data-testid="stSlider"] [role="slider"]{
 @media(max-width:700px){
  .block-container{padding:.8rem .75rem 3rem}
  .hero{padding:1.35rem;border-radius:21px}
+ .property-panel{grid-template-columns:1fr}
  .result-shell{padding:.85rem;border-radius:20px}
  .formula-row{min-height:68px;padding:.75rem .85rem}
  .formula-left{gap:.45rem}
@@ -378,9 +447,18 @@ with tab_formula:
     st.markdown("## 配方設計")
     with st.form("formula_form"):
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        formula_name = st.text_input(
+            "配方名稱",
+            value="未命名配方",
+            placeholder="例如：夏季型減水劑 A",
+        )
         top = st.columns(2)
         target_total = top[0].number_input(
-            "最終目標總量", min_value=0.01, value=100.0, step=1.0, format="%.2f"
+            "最終目標總量",
+            min_value=0.01,
+            value=100.0,
+            step=1.0,
+            format="%.2f",
         )
         unit = top[1].selectbox("單位", ["kg", "g", "L", "噸"])
         st.markdown("</div>", unsafe_allow_html=True)
@@ -416,7 +494,7 @@ with tab_formula:
                 key=f"{key}_ratio_input",
             )
             concentrations[key] = cols[1].number_input(
-                f"{label} 母液濃度 (%)",
+                f"{label} 固成分／母液濃度 (%)",
                 min_value=0.1,
                 max_value=100.0,
                 value=default_concentration,
@@ -430,19 +508,60 @@ with tab_formula:
             )
 
         st.markdown("### 後添加")
-        post = st.columns(2)
+        post = st.columns(3)
         g_percent = post[0].number_input(
-            "G 後添加比例 (%)", 0.0, 100.0, 6.0, .1, format="%.2f"
+            "G 後添加比例 (%)",
+            0.0,
+            100.0,
+            6.0,
+            .1,
+            format="%.2f",
+            help="G 為 100% 固體葡萄糖酸鈉。",
         )
         additive_percent = post[1].number_input(
-            "額外添加劑占最終總量 (%)", 0.0, 99.99, 0.0, .1, format="%.2f",
-            help="例如 2%，用量就是最終目標總量的 2%。"
+            "額外添加劑占最終總量 (%)",
+            0.0,
+            99.99,
+            0.0,
+            .1,
+            format="%.2f",
+            help="例如 2%，用量就是最終目標總量的 2%。",
+        )
+        additive_solids = post[2].number_input(
+            "額外添加劑固成分 (%)",
+            0.0,
+            100.0,
+            100.0,
+            .1,
+            format="%.2f",
+            help="預設 100%，可依實際產品規格調整。",
         )
         st.markdown(
             '<div class="notice"><b>計算順序：</b>先保留額外添加劑的最終占比，再將剩餘量除以 '
             '<b>(1 + G比例)</b>，得到母液與水的配製基準。</div>',
             unsafe_allow_html=True,
         )
+        with st.expander("查看固成分與比重計算設定"):
+            st.markdown(
+                f"""
+                **固成分**
+
+                - V、Q、SE、額外母液：使用各自輸入的固成分／母液濃度
+                - G（葡萄糖酸鈉）：100%
+                - 額外添加劑：預設 100%，可調整
+                - 水：0%
+                - D7：不納入固成分
+
+                **比重估算**
+
+                - V：{SPECIFIC_GRAVITIES['V']:.3f}
+                - Q：{SPECIFIC_GRAVITIES['Q']:.3f}
+                - SE：{SPECIFIC_GRAVITIES['SE']:.3f}
+                - G（葡萄糖酸鈉）：{SPECIFIC_GRAVITIES['G']:.3f}
+                - 水：{SPECIFIC_GRAVITIES['WATER']:.3f}
+                - 額外母液、額外添加劑、D7：暫不納入
+                """
+            )
         submitted = st.form_submit_button("開始計算", type="primary", use_container_width=True)
 
     if submitted:
@@ -453,6 +572,8 @@ with tab_formula:
                 concentrations=concentrations,
                 g_percent=g_percent,
                 additive_percent_of_final=additive_percent,
+                additive_solids_percent=additive_solids,
+                formula_name=formula_name,
                 unit=unit,
             )
         except FormulaError as exc:
@@ -461,6 +582,16 @@ with tab_formula:
             st.session_state.last_result = result
             st.session_state.history.insert(0, {
                 "時間": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "配方名稱": result.formula_name,
+                "固成分 (%)": round(result.solid_content_percent, 2),
+                "估算比重": (
+                    round(result.estimated_specific_gravity, 3)
+                    if result.estimated_specific_gravity is not None
+                    else None
+                ),
+                "比重涵蓋率 (%)": round(
+                    result.specific_gravity_coverage_percent, 2
+                ),
                 "最終目標量": round(result.target_final_total, 2),
                 "單位": result.unit,
                 "V": round(result.mother_liquor_amounts["V"], 2),
@@ -481,6 +612,51 @@ with tab_formula:
                 f'<div class="danger"><b>水量為負值：{result.water_amount:.2f} {result.unit}</b><br>'
                 '母液換算總量超過目前可用的母液＋水基準，請調整有效比例或母液濃度。</div>',
                 unsafe_allow_html=True
+            )
+
+        specific_gravity_text = (
+            f"{result.estimated_specific_gravity:.3f}"
+            if result.estimated_specific_gravity is not None
+            else "無法估算"
+        )
+        st.markdown(
+            f"""
+            <div class="property-panel">
+              <div class="property-item">
+                <div class="property-label">配方名稱</div>
+                <div class="property-value">{result.formula_name}</div>
+              </div>
+              <div class="property-item">
+                <div class="property-label">配方固成分</div>
+                <div class="property-value">{result.solid_content_percent:.2f}%</div>
+                <div class="property-note">D7 不納入</div>
+              </div>
+              <div class="property-item">
+                <div class="property-label">估算比重</div>
+                <div class="property-value">{specific_gravity_text}</div>
+                <div class="property-note">
+                  涵蓋 {result.specific_gravity_coverage_percent:.2f}% 配方質量
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if not result.has_complete_density_coverage:
+            st.markdown(
+                '<div class="warning"><b>比重為估算值：</b>'
+                '額外母液與額外添加劑因尚無比重資料，暫未納入。'
+                '畫面已顯示本次估算涵蓋率。</div>',
+                unsafe_allow_html=True,
+            )
+
+        if unit == "L":
+            st.markdown(
+                '<div class="warning"><b>單位提醒：</b>'
+                '固成分與比重公式以投料量視為重量為前提；'
+                '使用 L 時請將結果視為暫估。</div>',
+                unsafe_allow_html=True,
             )
 
         rows = [
@@ -524,7 +700,7 @@ with tab_formula:
         st.markdown(
             f"""
             <div class="result-shell">
-              <div class="result-heading">最終投料結果</div>
+              <div class="result-heading">{result.formula_name}｜最終投料結果</div>
               <div class="result-subtitle">
                 配方成分靠左，用量與單位靠右
               </div>
@@ -556,26 +732,43 @@ with tab_formula:
             placeholder="例如：王小明",
         )
         df = pd.DataFrame(result.rows())
+        df.insert(0, "配方名稱", result.formula_name)
+        df["配方固成分 (%)"] = round(
+            result.solid_content_percent, 2
+        )
+        df["估算比重"] = (
+            round(result.estimated_specific_gravity, 3)
+            if result.estimated_specific_gravity is not None
+            else None
+        )
+        df["比重估算涵蓋率 (%)"] = round(
+            result.specific_gravity_coverage_percent, 2
+        )
 
+        safe_formula_name = "".join(
+            char
+            for char in result.formula_name
+            if char.isalnum() or char in ("-", "_")
+        ) or "formula"
         download_cols = st.columns(3)
         download_cols[0].download_button(
             "下載 CSV",
             df.to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"formula_{datetime.now():%Y%m%d_%H%M%S}.csv",
+            file_name=f"{safe_formula_name}_{datetime.now():%Y%m%d_%H%M%S}.csv",
             mime="text/csv",
             use_container_width=True,
         )
         download_cols[1].download_button(
             "下載文字配方",
             formula_text.encode("utf-8"),
-            file_name=f"formula_{datetime.now():%Y%m%d_%H%M%S}.txt",
+            file_name=f"{safe_formula_name}_{datetime.now():%Y%m%d_%H%M%S}.txt",
             mime="text/plain",
             use_container_width=True,
         )
         download_cols[2].download_button(
             "下載 PDF 配方單",
             build_formula_pdf(result, operator),
-            file_name=f"formula_{datetime.now():%Y%m%d_%H%M%S}.pdf",
+            file_name=f"{safe_formula_name}_{datetime.now():%Y%m%d_%H%M%S}.pdf",
             mime="application/pdf",
             use_container_width=True,
         )
@@ -682,6 +875,20 @@ with tab_rules:
     **D7**
 
     `D7 = Q 用量 × 0.003`
+
+    D7 用量極少，因此不納入配方固成分與比重估算。
+
+    **配方固成分**
+
+    `固成分 = 各材料固體重量合計 ÷ 主配方總量 × 100%`
+
+    G 固成分固定為 100%；額外添加劑預設 100%，可調整。
+
+    **估算比重**
+
+    `估算比重 = 已知比重材料總重量 ÷ Σ(材料重量 ÷ 材料比重)`
+
+    目前納入 V、Q、SE、G 與水；額外母液、額外添加劑及 D7 暫不納入。
 
     **品管補加**
 
