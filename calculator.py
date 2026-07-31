@@ -158,7 +158,7 @@ class ReverseFormulaResult:
                 "命名數字": self.rounded_percentages["Q"],
             },
             {
-                "項目": "A = V + Q",
+                "項目": "V＋Q",
                 "精確比例 (%)": round(self.a_percent, 4),
                 "命名數字": self.rounded_percentages["A"],
             },
@@ -212,6 +212,32 @@ def _percent(value: float, label: str, positive: bool = False) -> float:
     elif value < 0 or value > 100:
         raise FormulaError(f"{label}必須介於 0% 至 100%。")
     return value
+
+
+def resolve_vq_effective_percentages(
+    vq_total: float,
+    v_value: float,
+    q_value: float,
+) -> tuple[float, float, bool]:
+    """
+    將 V、Q 輸入值解析成實際有效比例。
+
+    當 V + Q 小於「V＋Q」目標且兩者合計大於 0 時，
+    V、Q 視為相對比例，按原比例放大到指定的 V＋Q 總值。
+    其他情況維持 V、Q 原輸入值。
+
+    回傳：實際 V%、實際 Q%、是否進行比例放大。
+    """
+    vq_total = _percent(vq_total, "V＋Q")
+    v_value = _percent(v_value, "V 設定")
+    q_value = _percent(q_value, "Q 設定")
+
+    entered_total = v_value + q_value
+    if entered_total > 0 and entered_total < vq_total - 1e-12:
+        scale = vq_total / entered_total
+        return v_value * scale, q_value * scale, True
+
+    return v_value, q_value, False
 
 
 def _calculate_solid_properties(
@@ -453,10 +479,10 @@ def calculate_reverse_formula(
       G%  = G量 ÷ base × 100
 
     名稱：
-      A = 四捨五入後的 V 數字 + Q 數字
-      B = 四捨五入後的 SE 數字
-      C = 四捨五入後的 G 數字
-      配方名稱 = ABC(VＤQＥ)
+      第一段 = 四捨五入後的 V 數字 + Q 數字
+      第二段 = 四捨五入後的 SE 數字
+      第三段 = 四捨五入後的 G 數字
+      配方名稱 = [V＋Q][SE][G](VＤQＥ)
 
     例如 V=8、Q=1、SE=5、G=6，名稱為 956(V8Q1)。
     """

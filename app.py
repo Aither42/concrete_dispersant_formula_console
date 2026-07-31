@@ -25,6 +25,7 @@ from calculator import (
     calculate_correction_addition,
     calculate_formula,
     calculate_reverse_formula,
+    resolve_vq_effective_percentages,
 )
 
 
@@ -241,7 +242,7 @@ def build_reverse_text(result) -> str:
                 f" → {result.rounded_percentages['Q']}"
             ),
             (
-                "A = V + Q："
+                "V＋Q 輸入："
                 f"{result.a_percent:.4f}%"
                 f" → {result.rounded_percentages['A']}"
             ),
@@ -595,18 +596,18 @@ with tab_formula:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown("### 配方代碼快速輸入")
         st.caption(
-            "A = V＋Q、B = SE、C = G。"
-            "例如 A=9、B=4、C=6、V=8、Q=1 → 946(V8Q1)"
+            "前三個欄位依序為 V＋Q、SE、G；後面輸入 V、Q。"
+            "例如 V＋Q=10、SE=4、G=6、V=8、Q=1 → 1046(V8Q1)。"
         )
         code_cols = st.columns(3)
-        code_a = code_cols[0].number_input(
-            "A（V＋Q）", 0, 99, 9, 1, key="formula_code_a"
+        code_vq_total = code_cols[0].number_input(
+            "V＋Q", 0, 99, 9, 1, key="formula_code_vq_total"
         )
-        code_b = code_cols[1].number_input(
-            "B（SE）", 0, 99, 4, 1, key="formula_code_b"
+        code_se = code_cols[1].number_input(
+            "SE", 0, 99, 4, 1, key="formula_code_se"
         )
-        code_c = code_cols[2].number_input(
-            "C（G）", 0, 99, 6, 1, key="formula_code_c"
+        code_g = code_cols[2].number_input(
+            "G", 0, 99, 6, 1, key="formula_code_g"
         )
         vq_cols = st.columns(2)
         code_v = vq_cols[0].number_input(
@@ -615,19 +616,41 @@ with tab_formula:
         code_q = vq_cols[1].number_input(
             "Q 設定", 0, 99, 1, 1, key="formula_code_q"
         )
+
+        effective_v, effective_q, vq_ratio_scaled = (
+            resolve_vq_effective_percentages(
+                code_vq_total,
+                code_v,
+                code_q,
+            )
+        )
+        entered_vq_total = float(code_v) + float(code_q)
+
         formula_name = (
-            f"{int(code_a)}{int(code_b)}{int(code_c)}"
+            f"{int(code_vq_total)}{int(code_se)}{int(code_g)}"
             f"(V{int(code_v)}Q{int(code_q)})"
         )
         st.markdown(
             f'<div class="quick-code-preview">{formula_name}</div>',
             unsafe_allow_html=True,
         )
-        if int(code_a) != int(code_v) + int(code_q):
+
+        if vq_ratio_scaled:
+            st.info(
+                f"V＋Q 目標為 {float(code_vq_total):.2f}%，"
+                f"V、Q 輸入合計只有 {entered_vq_total:.2f}%，"
+                f"因此按 {int(code_v)}:{int(code_q)} 比例換算："
+                f"V={effective_v:.4f}%、Q={effective_q:.4f}%。"
+            )
+        elif float(code_vq_total) > 0 and entered_vq_total == 0:
             st.warning(
-                f"A 輸入為 {int(code_a)}，但 V＋Q 為 "
-                f"{int(code_v) + int(code_q)}。"
-                "計算仍以 V、Q 的實際設定為準。"
+                "V＋Q 大於 0，但 V、Q 都是 0，無法按比例分配。"
+            )
+        elif entered_vq_total > float(code_vq_total):
+            st.warning(
+                f"V、Q 輸入合計為 {entered_vq_total:.2f}%，"
+                f"高於 V＋Q 欄位的 {float(code_vq_total):.2f}%。"
+                "依規則不縮小，計算會直接採用目前的 V、Q 數值。"
             )
         top = st.columns(2)
         target_total = top[0].number_input(
@@ -648,14 +671,14 @@ with tab_formula:
         )
 
         defaults = [
-            ("V", "V", float(code_v), 40.0),
-            ("Q", "Q", float(code_q), 60.0),
-            ("SE", "SE", float(code_b), 40.0),
+            ("V", "V", float(effective_v), 40.0),
+            ("Q", "Q", float(effective_q), 60.0),
+            ("SE", "SE", float(code_se), 40.0),
             ("M4", "額外母液", 0.0, 40.0),
         ]
         active, concentrations = {}, {}
 
-        code_signature = (int(code_v), int(code_q), int(code_b))
+        code_signature = (round(effective_v, 8), round(effective_q, 8), int(code_se))
         previous_signature = st.session_state.get("formula_code_signature")
         for key, label, default_ratio, default_concentration in defaults:
             ratio_key = f"{key}_ratio_input"
@@ -694,17 +717,17 @@ with tab_formula:
 
         st.markdown("### 後添加")
         post = st.columns(3)
-        if st.session_state.get("formula_code_c_previous") != int(code_c):
-            st.session_state["g_percent_input"] = float(code_c)
-        st.session_state["formula_code_c_previous"] = int(code_c)
+        if st.session_state.get("formula_code_g_previous") != int(code_g):
+            st.session_state["g_percent_input"] = float(code_g)
+        st.session_state["formula_code_g_previous"] = int(code_g)
         g_percent = post[0].number_input(
             "G 後添加比例 (%)",
             0.0,
             100.0,
-            float(code_c),
+            float(code_g),
             .1,
             format="%.2f",
-            help="由配方代碼 C 自動帶入，也可手動微調。",
+            help="由上方 G 欄位自動帶入，也可手動微調。",
             key="g_percent_input",
         )
         additive_percent = post[1].number_input(
@@ -1111,7 +1134,7 @@ with tab_reverse:
                 reverse_result.rounded_percentages["Q"],
             ),
             render_reverse_row(
-                "A = V + Q",
+                "V＋Q",
                 reverse_result.a_percent,
                 reverse_result.rounded_percentages["A"],
             ),
@@ -1139,13 +1162,13 @@ with tab_reverse:
             st.markdown(
                 '<div class="warning"><b>名稱格式提醒：</b>'
                 '取整後至少有一個命名數字超過 9，'
-                '因此產生的名稱不再是標準三位數 ABC 格式。</div>',
+                '因此產生的名稱不再是標準前三段數字格式。</div>',
                 unsafe_allow_html=True,
             )
 
         st.markdown(
             '<div class="notice"><b>命名規則：</b>'
-            'A = 取整後的 V + Q；B = SE；C = G；'
+            '前三段依序為 V＋Q、SE、G；'
             '括號內顯示 V 與 Q 的取整數字。</div>',
             unsafe_allow_html=True,
         )
@@ -1310,9 +1333,9 @@ with tab_rules:
 
     命名時先將 V、Q、SE、G 四捨五入為整數：
 
-    `A = V + Q；B = SE；C = G`
+    `前三段依序為 V＋Q、SE、G`
 
-    `名稱 = ABC(VＤQＥ)`
+    `名稱 = [V＋Q][SE][G](VＤQＥ)`
 
     例如 V=8、Q=1、SE=5、G=6，名稱為 `956(V8Q1)`。
 

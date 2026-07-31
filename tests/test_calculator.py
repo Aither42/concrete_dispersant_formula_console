@@ -5,6 +5,7 @@ from calculator import (
     calculate_correction_addition,
     calculate_formula,
     calculate_reverse_formula,
+    resolve_vq_effective_percentages,
 )
 
 
@@ -96,6 +97,38 @@ class FormulaTests(unittest.TestCase):
         expected = 1000 * (6 - 5) / (40 - 6)
         self.assertAlmostEqual(result.add_amount, expected)
         self.assertAlmostEqual(result.final_percent, 6)
+
+
+    def test_vq_values_scale_as_ratio_when_below_target(self):
+        v_percent, q_percent, scaled = resolve_vq_effective_percentages(
+            vq_total=10,
+            v_value=8,
+            q_value=1,
+        )
+        self.assertTrue(scaled)
+        self.assertAlmostEqual(v_percent, 8 / 9 * 10)
+        self.assertAlmostEqual(q_percent, 1 / 9 * 10)
+        self.assertAlmostEqual(v_percent + q_percent, 10)
+
+    def test_vq_values_stay_direct_when_sum_matches_target(self):
+        v_percent, q_percent, scaled = resolve_vq_effective_percentages(
+            vq_total=9,
+            v_value=8,
+            q_value=1,
+        )
+        self.assertFalse(scaled)
+        self.assertEqual(v_percent, 8)
+        self.assertEqual(q_percent, 1)
+
+    def test_vq_values_are_not_reduced_when_sum_exceeds_target(self):
+        v_percent, q_percent, scaled = resolve_vq_effective_percentages(
+            vq_total=8,
+            v_value=8,
+            q_value=1,
+        )
+        self.assertFalse(scaled)
+        self.assertEqual(v_percent, 8)
+        self.assertEqual(q_percent, 1)
 
 
     def test_reverse_formula_example_name(self):
