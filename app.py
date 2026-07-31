@@ -596,8 +596,8 @@ with tab_formula:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown("### 配方代碼快速輸入")
         st.caption(
-            "前三個欄位依序為 V＋Q、SE、G；後面輸入 V、Q。"
-            "例如 V＋Q=10、SE=4、G=6、V=8、Q=1 → 1046(V8Q1)。"
+            "前三個欄位依序為 V＋Q、SE、G；V、Q 欄位代表分配權重。"
+            "例如 389(V8Q1) 會把 V＋Q 的 3% 按 8:1 分配。"
         )
         code_cols = st.columns(3)
         code_vq_total = code_cols[0].number_input(
@@ -635,22 +635,15 @@ with tab_formula:
             unsafe_allow_html=True,
         )
 
-        if vq_ratio_scaled:
+        if entered_vq_total == 0 and float(code_vq_total) > 0:
+            st.warning(
+                "V＋Q 大於 0，但 V、Q 權重都是 0，無法分配。"
+            )
+        elif entered_vq_total > 0:
             st.info(
-                f"V＋Q 目標為 {float(code_vq_total):.2f}%，"
-                f"V、Q 輸入合計只有 {entered_vq_total:.2f}%，"
-                f"因此按 {int(code_v)}:{int(code_q)} 比例換算："
+                f"V＋Q 的 {float(code_vq_total):.2f}% "
+                f"按 V:Q = {int(code_v)}:{int(code_q)} 分配："
                 f"V={effective_v:.4f}%、Q={effective_q:.4f}%。"
-            )
-        elif float(code_vq_total) > 0 and entered_vq_total == 0:
-            st.warning(
-                "V＋Q 大於 0，但 V、Q 都是 0，無法按比例分配。"
-            )
-        elif entered_vq_total > float(code_vq_total):
-            st.warning(
-                f"V、Q 輸入合計為 {entered_vq_total:.2f}%，"
-                f"高於 V＋Q 欄位的 {float(code_vq_total):.2f}%。"
-                "依規則不縮小，計算會直接採用目前的 V、Q 數值。"
             )
         top = st.columns(2)
         target_total = top[0].number_input(

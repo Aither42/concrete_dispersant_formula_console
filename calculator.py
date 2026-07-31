@@ -220,24 +220,29 @@ def resolve_vq_effective_percentages(
     q_value: float,
 ) -> tuple[float, float, bool]:
     """
-    將 V、Q 輸入值解析成實際有效比例。
+    將 V、Q 輸入值視為比例權重，分配指定的「V＋Q」總比例。
 
-    當 V + Q 小於「V＋Q」目標且兩者合計大於 0 時，
-    V、Q 視為相對比例，按原比例放大到指定的 V＋Q 總值。
-    其他情況維持 V、Q 原輸入值。
+    實際 V% = V權重 / (V權重 + Q權重) × V＋Q
+    實際 Q% = Q權重 / (V權重 + Q權重) × V＋Q
 
-    回傳：實際 V%、實際 Q%、是否進行比例放大。
+    因此不論 V、Q 權重合計高於或低於 V＋Q 目標，
+    都會按同一比例縮放；權重合計剛好等於目標時，結果不變。
+
+    回傳：實際 V%、實際 Q%、是否發生數值縮放。
     """
     vq_total = _percent(vq_total, "V＋Q")
     v_value = _percent(v_value, "V 設定")
     q_value = _percent(q_value, "Q 設定")
 
     entered_total = v_value + q_value
-    if entered_total > 0 and entered_total < vq_total - 1e-12:
-        scale = vq_total / entered_total
-        return v_value * scale, q_value * scale, True
+    if entered_total <= 0:
+        return 0.0, 0.0, False
 
-    return v_value, q_value, False
+    scale = vq_total / entered_total
+    effective_v = v_value * scale
+    effective_q = q_value * scale
+    was_scaled = abs(entered_total - vq_total) > 1e-12
+    return effective_v, effective_q, was_scaled
 
 
 def _calculate_solid_properties(
