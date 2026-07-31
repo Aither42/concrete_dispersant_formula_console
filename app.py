@@ -70,7 +70,7 @@ def build_formula_text(result) -> str:
     return "\n".join(lines)
 
 
-def build_formula_pdf(result, operator: str = "") -> bytes:
+def build_formula_pdf(result) -> bytes:
     """產生可下載的中文配方單 PDF。"""
     buffer = BytesIO()
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
@@ -108,8 +108,7 @@ def build_formula_pdf(result, operator: str = "") -> bytes:
     story = [
         Paragraph(result.formula_name, title_style),
         Paragraph(
-            f"日期：{datetime.now():%Y-%m-%d %H:%M}"
-            + (f"　操作員：{operator}" if operator.strip() else ""),
+            f"日期：{datetime.now():%Y-%m-%d %H:%M}",
             body_style,
         ),
         Paragraph(
@@ -339,6 +338,12 @@ div[data-testid="stSlider"] [role="slider"]{
 
 
 
+.quick-code-preview{
+  background:linear-gradient(145deg,#123f3b,#0b6b61);
+  color:white;border-radius:16px;padding:.85rem 1rem;
+  text-align:center;margin:.65rem 0 1rem;
+  font-size:clamp(1.8rem,6vw,2.8rem);font-weight:800;
+}
 .property-panel{
   display:grid;
   grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr));
@@ -588,11 +593,42 @@ with tab_formula:
     st.markdown("## 配方設計")
     with st.form("formula_form"):
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        formula_name = st.text_input(
-            "配方名稱",
-            value="未命名配方",
-            placeholder="例如：夏季型減水劑 A",
+        st.markdown("### 配方代碼快速輸入")
+        st.caption(
+            "A = V＋Q、B = SE、C = G。"
+            "例如 A=9、B=4、C=6、V=8、Q=1 → 946(V8Q1)"
         )
+        code_cols = st.columns(3)
+        code_a = code_cols[0].number_input(
+            "A（V＋Q）", 0, 99, 9, 1, key="formula_code_a"
+        )
+        code_b = code_cols[1].number_input(
+            "B（SE）", 0, 99, 4, 1, key="formula_code_b"
+        )
+        code_c = code_cols[2].number_input(
+            "C（G）", 0, 99, 6, 1, key="formula_code_c"
+        )
+        vq_cols = st.columns(2)
+        code_v = vq_cols[0].number_input(
+            "V 設定", 0, 99, 8, 1, key="formula_code_v"
+        )
+        code_q = vq_cols[1].number_input(
+            "Q 設定", 0, 99, 1, 1, key="formula_code_q"
+        )
+        formula_name = (
+            f"{int(code_a)}{int(code_b)}{int(code_c)}"
+            f"(V{int(code_v)}Q{int(code_q)})"
+        )
+        st.markdown(
+            f'<div class="quick-code-preview">{formula_name}</div>',
+            unsafe_allow_html=True,
+        )
+        if int(code_a) != int(code_v) + int(code_q):
+            st.warning(
+                f"A 輸入為 {int(code_a)}，但 V＋Q 為 "
+                f"{int(code_v) + int(code_q)}。"
+                "計算仍以 V、Q 的實際設定為準。"
+            )
         top = st.columns(2)
         target_total = top[0].number_input(
             "最終目標總量",
@@ -612,14 +648,20 @@ with tab_formula:
         )
 
         defaults = [
-            ("V", "V", 20.0, 40.0),
-            ("Q", "Q", 20.0, 60.0),
-            ("SE", "SE", 20.0, 40.0),
+            ("V", "V", float(code_v), 40.0),
+            ("Q", "Q", float(code_q), 60.0),
+            ("SE", "SE", float(code_b), 40.0),
             ("M4", "額外母液", 0.0, 40.0),
         ]
         active, concentrations = {}, {}
 
+        code_signature = (int(code_v), int(code_q), int(code_b))
+        previous_signature = st.session_state.get("formula_code_signature")
         for key, label, default_ratio, default_concentration in defaults:
+            ratio_key = f"{key}_ratio_input"
+            concentration_key = f"{key}_concentration_input"
+            if previous_signature != code_signature and key in ("V", "Q", "SE"):
+                st.session_state[ratio_key] = default_ratio
             st.markdown(
                 f'<div class="ingredient-title">{label}</div>',
                 unsafe_allow_html=True,
@@ -632,7 +674,7 @@ with tab_formula:
                 value=default_ratio,
                 step=0.1,
                 format="%.2f",
-                key=f"{key}_ratio_input",
+                key=ratio_key,
             )
             concentrations[key] = cols[1].number_input(
                 f"{label} 固成分／母液濃度 (%)",
@@ -641,23 +683,29 @@ with tab_formula:
                 value=default_concentration,
                 step=0.1,
                 format="%.2f",
-                key=f"{key}_concentration_input",
+                key=concentration_key,
             )
             st.markdown(
                 '<div class="ingredient-divider"></div>',
                 unsafe_allow_html=True,
             )
 
+        st.session_state["formula_code_signature"] = code_signature
+
         st.markdown("### 後添加")
         post = st.columns(3)
+        if st.session_state.get("formula_code_c_previous") != int(code_c):
+            st.session_state["g_percent_input"] = float(code_c)
+        st.session_state["formula_code_c_previous"] = int(code_c)
         g_percent = post[0].number_input(
             "G 後添加比例 (%)",
             0.0,
             100.0,
-            6.0,
+            float(code_c),
             .1,
             format="%.2f",
-            help="G 為 100% 固體葡萄糖酸鈉。",
+            help="由配方代碼 C 自動帶入，也可手動微調。",
+            key="g_percent_input",
         )
         additive_percent = post[1].number_input(
             "額外添加劑占最終總量 (%)",
@@ -868,10 +916,6 @@ with tab_formula:
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        operator = st.text_input(
-            "PDF 配方單操作員（選填）",
-            placeholder="例如：王小明",
-        )
         df = pd.DataFrame(result.rows())
         df.insert(0, "配方名稱", result.formula_name)
         df["配方固成分 (%)"] = round(
@@ -908,7 +952,7 @@ with tab_formula:
         )
         download_cols[2].download_button(
             "下載 PDF 配方單",
-            build_formula_pdf(result, operator),
+            build_formula_pdf(result),
             file_name=f"{safe_formula_name}_{datetime.now():%Y%m%d_%H%M%S}.pdf",
             mime="application/pdf",
             use_container_width=True,
